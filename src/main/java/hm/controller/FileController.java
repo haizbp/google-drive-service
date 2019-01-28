@@ -8,12 +8,13 @@ import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.io.IOUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
+import org.springframework.core.io.buffer.DataBuffer;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.http.server.ServletServerHttpResponse;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import hm.model.FileMeta;
 import hm.service.FileService;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 @RestController
@@ -32,32 +34,50 @@ public class FileController {
 
 	@GetMapping(value = "/test")
 	public ResponseEntity<Resource> test() {
-		Resource resource = new ClassPathResource("test.mp4");
+		Resource resource = new ClassPathResource("file_example_MP4_1920_18MG.mp4");
 		return ResponseEntity.status(HttpStatus.OK).contentType(MediaType.parseMediaType("video/mp4")).body(resource);
 	}
 
 	@GetMapping(value = "/playback")
-	public void urlStream(HttpServletResponse response, ServletServerHttpResponse response2) throws IOException {
+	public Mono<Void> urlStream(ServerHttpResponse response) throws IOException {
+		HttpHeaders header = response.getHeaders();
 
+		response.setStatusCode(HttpStatus.OK);
+		header.add("content-type","video/mp4");
+		header.add("Accept-Ranges", "bytes");
+		header.add("Content-Disposition", "inline; filename=playback.mp4;");
 		InputStream is = fileService.test();
-		transfer(is, 17839845, response);
+		
+		DataBuffer buffer = response.bufferFactory().allocateBuffer();
+		
+		IOUtils.copy(is, buffer.asOutputStream());
+		
+		header.setContentLength(buffer.writePosition());
+		
+		return response.writeWith(Flux.just(buffer));
 	}
 
 	@GetMapping(value = "/{id}")
-	public void get(@PathVariable("id") String id, HttpServletResponse response) throws IOException {
+	public Mono<Void> get(@PathVariable("id") String id, ServerHttpResponse response) throws IOException {
+		HttpHeaders header = response.getHeaders();
+
+		response.setStatusCode(HttpStatus.OK);
+		header.add("content-type","video/mp4");
+		header.add("Accept-Ranges", "bytes");
+		header.add("Content-Disposition", "inline; filename=playback.mp4;");
+		
 		FileMeta meta = fileService.download(id);
 		InputStream is = meta.getIn();
-		transfer(is, meta.getLength(),response);
+		
+		DataBuffer buffer = response.bufferFactory().allocateBuffer();
+		
+		IOUtils.copy(is, buffer.asOutputStream());
+		
+		header.setContentLength(buffer.writePosition());
+		
+		return response.writeWith(Flux.just(buffer));
 	}
 
-	private void transfer(InputStream is, int length, HttpServletResponse response) throws IOException {
-		response.setStatus(HttpStatus.OK.value());
-		response.setContentType("video/mp4");
-		response.setContentLength(length);
-		response.addHeader("Accept-Ranges", "bytes");
-		response.addHeader("Content-Disposition", "inline; filename=playback.mp4;");
-
-		IOUtils.copy(is, response.getOutputStream());
-	}
+	
 
 }
